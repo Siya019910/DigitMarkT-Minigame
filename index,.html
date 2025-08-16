@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DigitMarkT™ Mini Games</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Montserrat', sans-serif; background:#121212; color:#fff; text-align:center; padding:1rem; overflow-x:hidden; position:relative; }
+h1 { margin:1rem 0; color: gold; display:flex; justify-content:center; align-items:center; gap:1rem; position:relative; z-index:2; }
+.logo { width:50px; height:50px; border-radius:50%; background:gold; display:flex; align-items:center; justify-content:center; overflow:hidden; animation: float 3s infinite, glow 2s infinite; z-index:2; }
+.logo img { width:80%; height:80%; object-fit:contain; border-radius:50%; }
+@keyframes float { 0%,100%{transform:translateY(0);}50%{transform:translateY(-10px);} }
+@keyframes glow { 0%,100%{box-shadow:0 0 15px gold,0 0 30px gold;} 50%{box-shadow:0 0 25px gold,0 0 50px gold;} }
+
+#bgCanvas { position:fixed; top:0; left:0; width:100%; height:100%; z-index:0; pointer-events:none; }
+
+.tabs { display:flex; justify-content:center; margin:2rem 0; gap:1rem; flex-wrap:wrap; position:relative; z-index:2; }
+.tab { padding:0.5rem 1rem; border-radius:10px; background:gold; color:#000; cursor:pointer; font-weight:700; transition:0.3s; }
+.tab.active { background:#fff; color:#000; }
+
+.game { display:none; margin-top:1rem; position:relative; z-index:2; }
+.game.active { display:block; }
+
+#quiz { max-width:600px; margin:auto; text-align:left; background:rgba(31,31,31,0.85); padding:1.5rem; border-radius:15px; box-shadow:0 0 15px #000; }
+#quiz h2 { margin-bottom:1rem; }
+.option { background:rgba(51,51,51,0.85); padding:0.8rem; margin:0.5rem 0; border-radius:10px; cursor:pointer; transition:0.3s; }
+.option:hover { background: gold; color:#000; }
+
+#memory { display:grid; grid-template-columns:repeat(auto-fit,minmax(80px,1fr)); gap:10px; max-width:400px; margin:auto; }
+.card { background:rgba(31,31,31,0.85); border-radius:10px; height:80px; display:flex; align-items:center; justify-content:center; font-size:1.5rem; cursor:pointer; color:transparent; user-select:none; transition:0.3s; }
+.card.flipped, .card.matched { color:#000; background:gold; }
+
+.leaderboard { max-width:400px; margin:1rem auto; text-align:left; background:rgba(31,31,31,0.85); padding:1rem; border-radius:10px; }
+.leaderboard h3 { color: gold; margin-bottom:0.5rem; }
+.leaderboard ol { padding-left:1.2rem; list-style-type: decimal; }
+.leaderboard li { margin:0.3rem 0; opacity:0; transform:translateX(-20px); transition:0.5s; padding:0.3rem 0.5rem; border-radius:5px; }
+.leaderboard li.top { background: gold; color:#000; font-weight:bold; animation: pulse 1s infinite alternate; }
+.leaderboard li.second { background: linear-gradient(90deg, #00f, #0ff); color:#fff; }
+.leaderboard li.third { background: linear-gradient(90deg, #0f0, #0c0); color:#fff; }
+@keyframes pulse { transform:scale(1.05); box-shadow:0 0 15px gold,0 0 30px gold; }
+
+button.restart, button.nextLevel { margin-top:10px; padding:0.5rem 1rem; border-radius:10px; background:gold; color:#000; font-weight:700; cursor:pointer; }
+
+@media(max-width:500px){ #memory { grid-template-columns:repeat(4,1fr); } }
+</style>
+</head>
+<body>
+
+<canvas id="bgCanvas"></canvas>
+
+<h1><div class="logo"><img src="logo.png" alt="DigitMarkT Logo"></div>DigitMarkT™ Mini Games</h1>
+
+<div class="tabs">
+  <div class="tab active" data-target="quiz">Quiz Game</div>
+  <div class="tab" data-target="memory">Memory Game</div>
+</div>
+
+<div id="quiz" class="game active">
+  <h2 id="question">Question?</h2>
+  <div id="options"></div>
+  <p id="quiz-score">Score: 0</p>
+  <button id="restart-quiz" class="restart">Restart Quiz</button>
+  <div class="leaderboard">
+    <h3>Quiz Leaderboard</h3>
+    <ol id="quiz-leaderboard"></ol>
+  </div>
+</div>
+
+<div id="memory" class="game">
+  <button id="restart-memory" class="restart">Restart Memory</button>
+  <div class="leaderboard">
+    <h3>Memory Leaderboard</h3>
+    <ol id="memory-leaderboard"></ol>
+  </div>
+</div>
+
+<audio id="clickSound" src="https://freesound.org/data/previews/256/256113_3263906-lq.mp3"></audio>
+<audio id="successSound" src="https://freesound.org/data/previews/320/320181_5260875-lq.mp3"></audio>
+
+<script>
+// ------------------ SOUNDS & TABS ------------------ //
+const clickSound = document.getElementById('clickSound');
+const successSound = document.getElementById('successSound');
+function playClick(){ clickSound.currentTime=0; clickSound.play(); }
+function playSuccess(){ successSound.currentTime=0; successSound.play(); }
+
+const tabs = document.querySelectorAll('.tab');
+const games = document.querySelectorAll('.game');
+tabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    tabs.forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    const target = tab.dataset.target;
+    games.forEach(g=>g.classList.remove('active'));
+    document.getElementById(target).classList.add('active');
+  });
+});
+
+// ------------------ LEADERBOARD ------------------ //
+function displayLeaderboard(game){
+  const key = game+'Leaderboard';
+  const lb = JSON.parse(localStorage.getItem(key)) || [];
+  const ol = document.getElementById(game+'-leaderboard');
+  ol.innerHTML = '';
+  lb.forEach((item,i)=>{
+    const li = document.createElement('li');
+    li.textContent = `Level ${item.level} - ${item.name}: ${item.score}`;
+    li.className = '';
+    if(i===0) li.classList.add('top');
+    else if(i===1) li.classList.add('second');
+    else if(i===2) li.classList.add('third');
+    setTimeout(()=>{ li.style.opacity=1; li.style.transform='translateX(0)'; }, i*200);
+    ol.appendChild(li);
+  });
+}
+
+function updateLeaderboard(game, name, score, level){
+  const key = game+'Leaderboard';
+  let lb = JSON.parse(localStorage.getItem(key)) || [];
+  lb.push({name:name, score:score, level:level});
+  lb.sort((a,b)=>b.score - a.score);
+  if(lb.length>10) lb=lb.slice(0,10);
+  localStorage.setItem(key, JSON.stringify(lb));
+  displayLeaderboard(game);
+}
+
+// ------------------ QUIZ ------------------ //
+let quizLevels = {
+  1:[{q:"2+2?", options:["3","4","5","6"], answer:"4"},{q:"Capital of SA?", options:["Pretoria","Cairo","Nairobi","Lagos"], answer:"Pretoria"}],
+  2:[{q:"HTML stands for?", options:["Hyper Text Markup Language","High Text Machine Language","Hot Mail","None"], answer:"Hyper Text Markup Language"},{q:"JS is?", options:["JavaScript","JustScript","JumboScript","None"], answer:"JavaScript"}],
+  3:[{q:"CSS is for?", options:["Styling","Logic","DB","Network"], answer:"Styling"},{q:"2*6=?", options:["8","10","12","14"], answer:"12"}]
+};
+
+let quizState = JSON.parse(localStorage.getItem('quizState')) || {level:1, index:0, score:0};
+let currentQuiz = quizLevels[quizState.level];
+let quizIndex = quizState.index;
+let score = quizState.score;
+const questionEl = document.getElementById('question');
+const optionsEl = document.getElementById('options');
+const scoreEl = document.getElementById('quiz-score');
+
+function saveQuizState(){ localStorage.setItem('quizState', JSON.stringify({level:quizState.level,index:quizIndex,score:score})); }
+
+function loadQuiz(){
+  const current = currentQuiz[quizIndex];
+  if(!current) return finishQuiz();
+  questionEl.textContent = current.q;
+  optionsEl.innerHTML='';
+  current.options.forEach(opt=>{
+    const div = document.createElement('div');
+    div.textContent = opt;
+    div.classList.add('option');
+    div.addEventListener('click', ()=>{
+      playClick();
+      if(opt===current.answer) score++;
+      quizIndex++;
+      saveQuizState();
+      loadQuiz();
+      scoreEl.textContent = `Score: ${score}`;
+    });
+    optionsEl.appendChild(div);
+  });
+}
+
+function finishQuiz(){
+  questionEl.textContent = `Level ${quizState.level} Finished!`;
+  optionsEl.innerHTML = '';
+  scoreEl.textContent = `Score: ${score}`;
+  playSuccess();
+  const name = prompt("Enter name for leaderboard:")||"Player";
+  updateLeaderboard('quiz', name, score, quizState.level);
+  showNextLevelQuiz();
+}
+
+function showNextLevelQuiz(){
+  const nextBtn = document.createElement('button');
+  nextBtn.textContent = "Next Level";
+  nextBtn.className="nextLevel";
+  nextBtn.addEventListener('click', ()=>{
+    quizState.level++;
+    quizIndex=0; score=0;
+    currentQuiz = quizLevels[quizState.level] || quizLevels[1];
+    saveQuizState();
+    loadQuiz();
+    nextBtn.remove();
+  });
+  document.getElementById('quiz').appendChild(nextBtn);
+}
+
+document.getElementById('restart-quiz').addEventListener('click', ()=>{
+  playClick(); quizIndex=0; score=0; currentQuiz=quizLevels[quizState.level]; saveQuizState(); loadQuiz();
+});
+
+loadQuiz();
+displayLeaderboard('quiz');
+
+// ------------------ MEMORY ------------------ //
+const memoryEl = document.getElementById('memory');
+let memorySymbols = ["🍎","🍌","🍇","🍉","🍒","🍓","🍍","🥝"];
+let memoryState = JSON.parse(localStorage.getItem('memoryState')) || {level:1};
+let firstCard=null, secondCard=null, matchedCount=0, startTime=null;
+
+function loadMemoryLevel(level){
+  memoryEl.innerHTML='';
+  const cardsCount = Math.min(memorySymbols.length,2+level*2);
+  let cards=[...memorySymbols.slice(0,cardsCount/2),...memorySymbols.slice(0,cardsCount/2)];
+  cards.sort(()=>Math.random()-0.5);
+  matchedCount=0; firstCard=null; secondCard=null; startTime=null;
+  cards.forEach(sym=>{
+    const div=document.createElement('div'); div.classList.add('card'); div.textContent=sym;
+    memoryEl.appendChild(div);
+  });
+}
+
+function saveMemoryState(){ localStorage.setItem('memoryState', JSON.stringify(memoryState)); }
+
+function showNextMemoryLevel(){
+  const btn=document.createElement('button'); btn.textContent="Next Level"; btn.className="nextLevel";
+  btn.addEventListener('click',()=>{
+    memoryState.level++;
+    saveMemoryState();
+    loadMemoryLevel(memoryState.level);
+    btn.remove();
+  });
+  memoryEl.parentElement.appendChild(btn);
+}
+
+memoryEl.addEventListener('click', e=>{
+  const target = e.target;
+  if(!target.classList.contains('card') || target.classList.contains('flipped') || target.classList.contains('matched')) return;
+  target.classList.add('flipped'); playClick();
+  if(!startTime) startTime=Date.now();
+  if(!firstCard) firstCard=target; else{
+    secondCard=target;
+    if(firstCard.textContent===secondCard.textContent){
+      firstCard.classList.add('matched'); secondCard.classList.add('matched'); matchedCount+=2; playSuccess();
+      firstCard=null; secondCard=null;
+      if(matchedCount===memoryEl.children.length){
+        const timeTaken=Math.floor((Date.now()-startTime)/1000);
+        alert(`Memory Level ${memoryState.level} Completed in ${timeTaken} seconds!`);
+        const name=prompt("Enter name for leaderboard:")||"Player";
+        updateLeaderboard('memory', name, Math.max(0,100-timeTaken), memoryState.level);
+        showNextMemoryLevel();
+      }
+    } else { setTimeout(()=>{ firstCard.classList.remove('flipped'); secondCard.classList.remove('flipped'); firstCard=null; secondCard=null; },1000); }
+  }
+});
+
+document.getElementById('restart-memory').addEventListener('click', ()=>{ playClick(); loadMemoryLevel(memoryState.level); });
+
+loadMemoryLevel(memoryState.level);
+displayLeaderboard('memory');
+
+// ------------------ POLYGON BACKGROUND ------------------ //
+const canvas=document.getElementById('bgCanvas'); const ctx=canvas.getContext('2d');
+canvas.width=window.innerWidth; canvas.height=window.innerHeight;
+const polygons=[]; const polyCount=35;
+for(let i=0;i<polyCount;i++){ polygons.push({x:Math.random()*canvas.width, y:Math.random()*canvas.height, size:20+Math.random()*60, color:Math.random()>0.5?'blue':'green', dx:(Math.random()-0.5)*1.5, dy:(Math.random()-0.5)*1.5, opacity:Math.random()*0.4+0.2, dOpacity:(Math.random()-0.5)*0.01 }); }
+function draw(){ ctx.clearRect(0,0,canvas.width,canvas.height); polygons.forEach(p=>{ ctx.beginPath(); ctx.moveTo(p.x+p.size*Math.cos(0),p.y+p.size*Math.sin(0)); for(let i=1;i<=6;i++){ ctx.lineTo(p.x+p.size*Math.cos(i*Math.PI/3),p.y+p.size*Math.sin(i*Math.PI/3)); } ctx.closePath(); ctx.fillStyle=p.color; ctx.globalAlpha=Math.abs(p.opacity)*0.5; ctx.fill(); p.x+=p.dx; p.y+=p.dy; if(p.x<0||p.x>canvas.width)p.dx*=-1; if(p.y<0||p.y>canvas.height)p.dy*=-1; p.opacity+=p.dOpacity; if(p.opacity>0.7||p.opacity<0.2)p.dOpacity*=-1; }); requestAnimationFrame(draw); }
+draw();
+window.addEventListener('resize', ()=>{ canvas.width=window.innerWidth; canvas.height=window.innerHeight; });
+</script>
+</body>
+</html>
